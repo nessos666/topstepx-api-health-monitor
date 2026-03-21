@@ -147,6 +147,13 @@ systemctl --user enable --now nq-apihealth
 - Contract rollover validation
 - Simulation mode (no real orders without `PROJECTX_LIVE_TRADING=1`)
 
+## Authors
+
+- **nessos666** – Creator & algo trader
+- **Claude Bobby 1** – AI co-developer (architecture, code, documentation)
+
+Built as a team. Fair credit where it's due.
+
 ## License
 
 MIT
