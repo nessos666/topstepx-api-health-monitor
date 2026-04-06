@@ -26,6 +26,7 @@ Alerting:
   No built-in alerting. Use n8n, systemd timer, or cron to read the JSON
   and trigger alerts (Telegram, email, etc.) based on trust_score/status.
 """
+
 from __future__ import annotations
 
 import json
@@ -34,7 +35,7 @@ import os
 import sys
 import time
 import traceback
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
@@ -55,14 +56,14 @@ STARTING_BALANCE = float(os.environ.get("STARTING_BALANCE", "50000"))
 
 # Trust Score weights (sum = 1.0)
 WEIGHTS = {
-    "reachability":    0.15,
-    "latency":         0.08,
-    "data_freshness":  0.18,
-    "contract":        0.18,
-    "token":           0.08,
-    "can_trade":       0.10,
-    "bar_quality":     0.06,
-    "balance":         0.08,
+    "reachability": 0.15,
+    "latency": 0.08,
+    "data_freshness": 0.18,
+    "contract": 0.18,
+    "token": 0.08,
+    "can_trade": 0.10,
+    "bar_quality": 0.06,
+    "balance": 0.08,
     "loop_continuity": 0.09,
 }
 
@@ -87,12 +88,14 @@ LIVE_SCANNER_LOGS: dict[str, Path] = {
 
 # ── Data Classes ─────────────────────────────────────────────────────────────
 
+
 @dataclass
 class HealthCheck:
     """Result of a single check."""
+
     name: str
     passed: bool
-    score: float       # 0.0 - 1.0
+    score: float  # 0.0 - 1.0
     detail: str
     latency_ms: float = 0.0
 
@@ -100,6 +103,7 @@ class HealthCheck:
 @dataclass
 class APIHealthResult:
     """Overall result of all checks."""
+
     timestamp: str
     trust_score: float
     status: str
@@ -134,6 +138,7 @@ class APIHealthResult:
 
 # ── Helper Functions ─────────────────────────────────────────────────────────
 
+
 def is_market_open() -> bool:
     """Check if NQ futures market is currently open.
     Trading hours: Sun 18:00 - Fri 17:00 ET (with daily pause 17:00-18:00 ET).
@@ -165,6 +170,7 @@ def log(msg: str) -> None:
 
 # ── API Health Scanner ───────────────────────────────────────────────────────
 
+
 class APIHealthScanner:
     """Runs 9 health checks against the TopStepX API."""
 
@@ -195,7 +201,9 @@ class APIHealthScanner:
             latency = (time.monotonic() - t0) * 1000
             self._cached_accounts = accounts
             return HealthCheck(
-                "reachability", True, 1.0,
+                "reachability",
+                True,
+                1.0,
                 f"HTTP 200 in {latency:.0f}ms",
                 latency,
             )
@@ -233,7 +241,9 @@ class APIHealthScanner:
             score, passed = 0.0, False
 
         return HealthCheck(
-            "latency", passed, score,
+            "latency",
+            passed,
+            score,
             " | ".join(details),
             worst_p95,
         )
@@ -262,11 +272,17 @@ class APIHealthScanner:
             age_min = (now_utc - bar_time).total_seconds() / 60
 
             if age_min <= DATA_FRESHNESS_WARN_MIN:
-                return HealthCheck("data_freshness", True, 1.0, f"Last bar {age_min:.1f} min ago")
+                return HealthCheck(
+                    "data_freshness", True, 1.0, f"Last bar {age_min:.1f} min ago"
+                )
             elif age_min <= DATA_FRESHNESS_CRIT_MIN:
-                return HealthCheck("data_freshness", False, 0.5, f"Bar {age_min:.1f} min old!")
+                return HealthCheck(
+                    "data_freshness", False, 0.5, f"Bar {age_min:.1f} min old!"
+                )
             else:
-                return HealthCheck("data_freshness", False, 0.0, f"Bar {age_min:.0f} min old!")
+                return HealthCheck(
+                    "data_freshness", False, 0.0, f"Bar {age_min:.0f} min old!"
+                )
         except Exception as e:
             return HealthCheck("data_freshness", False, 0.0, f"Error: {e}")
 
@@ -291,7 +307,9 @@ class APIHealthScanner:
                 return HealthCheck("token", True, 0.8, "Token freshly created")
 
             if age_h < 23:
-                return HealthCheck("token", True, 1.0, f"Token valid ({age_h:.1f}h old)")
+                return HealthCheck(
+                    "token", True, 1.0, f"Token valid ({age_h:.1f}h old)"
+                )
             else:
                 self.api.refresh_token()
                 return HealthCheck("token", True, 0.8, "Token renewed")
@@ -308,7 +326,9 @@ class APIHealthScanner:
                         return HealthCheck("can_trade", True, 1.0, "canTrade=True")
                     else:
                         name = acc.get("name", str(ACCOUNT_ID))
-                        return HealthCheck("can_trade", False, 0.0, f"{name}: canTrade=False")
+                        return HealthCheck(
+                            "can_trade", False, 0.0, f"{name}: canTrade=False"
+                        )
             return HealthCheck("can_trade", False, 0.0, "Account not found")
         except Exception as e:
             return HealthCheck("can_trade", False, 0.0, f"Error: {e}")
@@ -335,18 +355,27 @@ class APIHealthScanner:
                 c = bar.get("c", 0) or bar.get("close", 0)
                 v = bar.get("v", 0) or bar.get("volume", 0)
 
-                if any(x is None or (isinstance(x, float) and math.isnan(x)) for x in [o, h, l, c]):
+                if any(
+                    x is None or (isinstance(x, float) and math.isnan(x))
+                    for x in [o, h, l, c]
+                ):
                     problems.append(f"Bar {i}: NaN value")
                 elif h < l:
                     problems.append(f"Bar {i}: high < low")
                 elif not (NQ_PRICE_MIN < c < NQ_PRICE_MAX):
-                    problems.append(f"Bar {i}: price {c} outside {NQ_PRICE_MIN}-{NQ_PRICE_MAX}")
+                    problems.append(
+                        f"Bar {i}: price {c} outside {NQ_PRICE_MIN}-{NQ_PRICE_MAX}"
+                    )
                 elif v is not None and v == 0:
                     problems.append(f"Bar {i}: volume=0")
 
             if problems:
-                return HealthCheck("bar_quality", False, 0.3, f"{len(problems)} issues: {problems[0]}")
-            return HealthCheck("bar_quality", True, 1.0, f"{min(len(bars), 10)} bars OK")
+                return HealthCheck(
+                    "bar_quality", False, 0.3, f"{len(problems)} issues: {problems[0]}"
+                )
+            return HealthCheck(
+                "bar_quality", True, 1.0, f"{min(len(bars), 10)} bars OK"
+            )
         except Exception as e:
             return HealthCheck("bar_quality", False, 0.0, f"Error: {e}")
 
@@ -388,11 +417,13 @@ class APIHealthScanner:
             return mp
 
         if not LIVE_SCANNER_LOGS:
-            return HealthCheck("loop_continuity", True, 1.0,
-                               "No scanner logs configured (skipped)")
+            return HealthCheck(
+                "loop_continuity", True, 1.0, "No scanner logs configured (skipped)"
+            )
 
         try:
             import re
+
             now_utc = datetime.now(timezone.utc)
             problems = []
             checked = 0
@@ -419,15 +450,30 @@ class APIHealthScanner:
                     m = re.search(r"(\d{2}):(\d{2}):\d{2} UTC", line)
                     if m:
                         h, mi = int(m.group(1)), int(m.group(2))
-                        last_ts = now_utc.replace(hour=h, minute=mi, second=0, microsecond=0)
+                        last_ts = now_utc.replace(
+                            hour=h, minute=mi, second=0, microsecond=0
+                        )
                         if last_ts > now_utc:
                             last_ts -= timedelta(days=1)
                         break
                     m = re.search(r"\[(\d{2}):(\d{2}) ET", line)
                     if m:
                         h, mi = int(m.group(1)), int(m.group(2))
-                        utc_h = (h + 4) % 24
-                        last_ts = now_utc.replace(hour=utc_h, minute=mi, second=0, microsecond=0)
+                        # Convert ET to UTC using zoneinfo (handles EDT/EST automatically)
+                        try:
+                            from zoneinfo import ZoneInfo
+                        except ImportError:
+                            from backports.zoneinfo import ZoneInfo  # type: ignore[no-redef]
+                        et_time = now_utc.astimezone(
+                            ZoneInfo("America/New_York")
+                        ).replace(
+                            hour=h,
+                            minute=mi,
+                            second=0,
+                            microsecond=0,
+                        )
+                        last_ts = et_time.astimezone(timezone.utc).replace(tzinfo=None)
+                        last_ts = last_ts.replace(tzinfo=timezone.utc)
                         if last_ts > now_utc:
                             last_ts -= timedelta(days=1)
                         break
@@ -448,10 +494,15 @@ class APIHealthScanner:
                 return HealthCheck("loop_continuity", False, 0.0, "No logs found")
             if problems:
                 score = 0.0 if any("gap" in p.lower() for p in problems) else 0.5
-                return HealthCheck("loop_continuity", False, score,
-                                   f"{len(problems)} issue(s): {problems[0]}")
-            return HealthCheck("loop_continuity", True, 1.0,
-                               f"All {checked} scanners running")
+                return HealthCheck(
+                    "loop_continuity",
+                    False,
+                    score,
+                    f"{len(problems)} issue(s): {problems[0]}",
+                )
+            return HealthCheck(
+                "loop_continuity", True, 1.0, f"All {checked} scanners running"
+            )
         except Exception as e:
             return HealthCheck("loop_continuity", False, 0.0, f"Error: {e}")
 
@@ -479,17 +530,16 @@ class APIHealthScanner:
             try:
                 checks.append(fn())
             except Exception as e:
-                checks.append(HealthCheck(
-                    name=fn.__name__.replace("check_", ""),
-                    passed=False,
-                    score=0.0,
-                    detail=f"CHECK CRASHED: {e}",
-                ))
+                checks.append(
+                    HealthCheck(
+                        name=fn.__name__.replace("check_", ""),
+                        passed=False,
+                        score=0.0,
+                        detail=f"CHECK CRASHED: {e}",
+                    )
+                )
 
-        trust_score = sum(
-            c.score * WEIGHTS.get(c.name, 0.1)
-            for c in checks
-        ) * 100
+        trust_score = sum(c.score * WEIGHTS.get(c.name, 0.1) for c in checks) * 100
 
         if trust_score >= 80:
             status = "HEALTHY"
@@ -539,7 +589,9 @@ class APIHealthScanner:
                 for ep, s in sorted(self._latency_stats.items()):
                     if s["count"] == 0:
                         continue
-                    f.write(f"{ts},{ep},{s['p50']},{s['p95']},{s['min']},{s['max']},{s['avg']},{s['count']}\n")
+                    f.write(
+                        f"{ts},{ep},{s['p50']},{s['p95']},{s['min']},{s['max']},{s['avg']},{s['count']}\n"
+                    )
         except Exception as e:
             log(f"Latency CSV error: {e}")
 
@@ -559,7 +611,7 @@ class APIHealthScanner:
             status = "CRITICAL"
 
         lines = [
-            f"API Trust System",
+            "API Trust System",
             f"Trust Score: {r.trust_score:.0f}/100 ({status})",
             "",
             "Checks:",
@@ -576,6 +628,7 @@ class APIHealthScanner:
 
 # ── Main ─────────────────────────────────────────────────────────────────────
 
+
 def main() -> None:
     log(f"API Health Scanner started | Interval: {CHECK_INTERVAL}s")
     log(f"Health JSON: {HEALTH_FILE}")
@@ -587,7 +640,9 @@ def main() -> None:
         result = scanner.run_all_checks()
         scanner.write_health_json(result)
         passed = sum(1 for c in result.checks if c.passed)
-        log(f"First check: Trust={result.trust_score:.0f} [{result.status}] | {passed}/9 passed")
+        log(
+            f"First check: Trust={result.trust_score:.0f} [{result.status}] | {passed}/9 passed"
+        )
         if result.trust_score < 80:
             log(f"  Trust low! Alerts: {result.alerts}")
     except Exception as e:

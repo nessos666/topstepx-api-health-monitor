@@ -18,6 +18,7 @@ Required ENV variables (.env file or environment):
   PROJECTX_ACCOUNT_ID   – Your account ID
   PROJECTX_LIVE_TRADING – Set to "1" for live orders (default: simulation)
 """
+
 from __future__ import annotations
 
 import datetime as dt
@@ -36,6 +37,7 @@ except ImportError:
 
 # ── Load .env ────────────────────────────────────────────────────────────────
 
+
 def _load_env() -> None:
     for env_file in (
         Path(__file__).resolve().parent / ".env",
@@ -53,30 +55,34 @@ def _load_env() -> None:
                 os.environ[k] = v
         break
 
+
 _load_env()
 
 # ── Constants ────────────────────────────────────────────────────────────────
 
-BASE_URL     = os.environ.get("PROJECTX_BASE_URL", "https://api.topstepx.com")
-USERNAME     = os.environ.get("PROJECTX_USERNAME") or os.environ.get("PROJECTX_USER_NAME", "")
-API_KEY      = os.environ.get("PROJECTX_API_KEY", "")
-CONTRACT_ID  = os.environ.get("PROJECTX_CONTRACT_ID", "CON.F.US.MNQ.M26")
-ACCOUNT_ID   = int(os.environ.get("PROJECTX_ACCOUNT_ID", "0"))
+BASE_URL = os.environ.get("PROJECTX_BASE_URL", "https://api.topstepx.com")
+USERNAME = os.environ.get("PROJECTX_USERNAME") or os.environ.get(
+    "PROJECTX_USER_NAME", ""
+)
+API_KEY = os.environ.get("PROJECTX_API_KEY", "")
+CONTRACT_ID = os.environ.get("PROJECTX_CONTRACT_ID", "CON.F.US.MNQ.M26")
+ACCOUNT_ID = int(os.environ.get("PROJECTX_ACCOUNT_ID", "0"))
 
-TICK_SIZE    = 0.25   # MNQ
-TICK_VALUE   = 0.50   # $ per tick MNQ
+TICK_SIZE = 0.25  # MNQ
+TICK_VALUE = 0.50  # $ per tick MNQ
 
 # Order types
 ORDER_MARKET = 2
-ORDER_LIMIT  = 1
-ORDER_STOP   = 4
+ORDER_LIMIT = 1
+ORDER_STOP = 4
 
 # Order sides
-SIDE_BID = 0   # Buy / Long
-SIDE_ASK = 1   # Sell / Short
+SIDE_BID = 0  # Buy / Long
+SIDE_ASK = 1  # Sell / Short
 
 
 # ── API Client ──────────────────────────────────────────────────────────────
+
 
 @dataclass
 class TopstepAPI:
@@ -87,21 +93,27 @@ class TopstepAPI:
     contract_id: which contract (default: MNQ from .env)
     live:        True = real orders | False = simulation (log only)
     """
-    account_id:  int = ACCOUNT_ID
-    contract_id: str = CONTRACT_ID
-    live:        bool = field(default_factory=lambda: (
-        os.environ.get("PROJECTX_LIVE_TRADING", "").strip().lower() in ("1", "true", "yes")
-    ))
 
-    _token:      str          = field(default="", init=False, repr=False)
+    account_id: int = ACCOUNT_ID
+    contract_id: str = CONTRACT_ID
+    live: bool = field(
+        default_factory=lambda: (
+            os.environ.get("PROJECTX_LIVE_TRADING", "").strip().lower()
+            in ("1", "true", "yes")
+        )
+    )
+
+    _token: str = field(default="", init=False, repr=False)
     _token_time: Optional[dt.datetime] = field(default=None, init=False, repr=False)
-    _last_latency_ms: float  = field(default=0.0, init=False, repr=False)
-    _latency_history: list   = field(default_factory=list, init=False, repr=False)
+    _last_latency_ms: float = field(default=0.0, init=False, repr=False)
+    _latency_history: list = field(default_factory=list, init=False, repr=False)
     _latency_by_endpoint: dict = field(default_factory=dict, init=False, repr=False)
 
     def __post_init__(self) -> None:
         if not USERNAME or not API_KEY:
-            raise RuntimeError("PROJECTX_USERNAME and PROJECTX_API_KEY must be set in .env or environment.")
+            raise RuntimeError(
+                "PROJECTX_USERNAME and PROJECTX_API_KEY must be set in .env or environment."
+            )
 
     # ── HTTP with Retry + Latency ──────────────────────────────────────────
 
@@ -125,7 +137,9 @@ class TopstepAPI:
         for attempt in range(retries + 1):
             try:
                 t0 = time.monotonic()
-                r = requests.post(url, json=json, headers=self._headers(), timeout=timeout)
+                r = requests.post(
+                    url, json=json, headers=self._headers(), timeout=timeout
+                )
                 latency = (time.monotonic() - t0) * 1000
                 self._last_latency_ms = latency
                 self._latency_history.append(latency)
@@ -138,14 +152,17 @@ class TopstepAPI:
                     ep_list.pop(0)
 
                 if r.status_code >= 500 and attempt < retries:
-                    time.sleep(backoff * (2 ** attempt))
+                    time.sleep(backoff * (2**attempt))
                     continue
                 r.raise_for_status()
                 return r
-            except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+            except (
+                requests.exceptions.ConnectionError,
+                requests.exceptions.Timeout,
+            ) as e:
                 last_exc = e
                 if attempt < retries:
-                    time.sleep(backoff * (2 ** attempt))
+                    time.sleep(backoff * (2**attempt))
                     continue
                 raise
             except requests.exceptions.HTTPError:
@@ -157,6 +174,7 @@ class TopstepAPI:
         if not self._latency_history:
             return 0.0
         import math
+
         sorted_lat = sorted(self._latency_history)
         idx = min(int(math.ceil(0.95 * len(sorted_lat))) - 1, len(sorted_lat) - 1)
         return sorted_lat[idx]
@@ -171,10 +189,18 @@ class TopstepAPI:
         }
         """
         import math
+
         stats = {}
         for ep, history in self._latency_by_endpoint.items():
             if not history:
-                stats[ep] = {"p50": 0, "p95": 0, "min": 0, "max": 0, "avg": 0, "count": 0}
+                stats[ep] = {
+                    "p50": 0,
+                    "p95": 0,
+                    "min": 0,
+                    "max": 0,
+                    "avg": 0,
+                    "count": 0,
+                }
                 continue
             s = sorted(history)
             n = len(s)
@@ -194,7 +220,9 @@ class TopstepAPI:
         """Token age in hours (None if no token yet)."""
         if not self._token_time:
             return None
-        age = (dt.datetime.now(dt.timezone.utc).replace(tzinfo=None) - self._token_time).total_seconds() / 3600
+        age = (
+            dt.datetime.now(dt.timezone.utc).replace(tzinfo=None) - self._token_time
+        ).total_seconds() / 3600
         return round(age, 2)
 
     def refresh_token(self) -> None:
@@ -263,18 +291,18 @@ class TopstepAPI:
         minutes: How many minutes back (max ~13,888 at 20,000 bar limit)
         Note: live=False for TopStep Combine accounts (otherwise returns 0 bars)
         """
-        end   = dt.datetime.now(dt.timezone.utc)
+        end = dt.datetime.now(dt.timezone.utc)
         start = end - dt.timedelta(minutes=minutes)
         r = self._request_with_retry(
             f"{BASE_URL}/api/History/retrieveBars",
             json={
-                "contractId":       self.contract_id,
-                "live":             False,
-                "startTime":        start.strftime("%Y-%m-%dT%H:%M:%SZ"),
-                "endTime":          end.strftime("%Y-%m-%dT%H:%M:%SZ"),
-                "unit":             2,   # Minute
-                "unitNumber":       1,   # 1m bars
-                "limit":            700,
+                "contractId": self.contract_id,
+                "live": False,
+                "startTime": start.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "endTime": end.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "unit": 2,  # Minute
+                "unitNumber": 1,  # 1m bars
+                "limit": 700,
                 "includePartialBar": False,
             },
             timeout=20,
@@ -324,9 +352,9 @@ class TopstepAPI:
         H=March->M, M=June->U, U=Sept->Z, Z=Dec->H(+1)
         """
         CONTRACT_CYCLE = [
-            (3, "H", "M"),   # March: H -> M
-            (6, "M", "U"),   # June:  M -> U
-            (9, "U", "Z"),   # Sept:  U -> Z
+            (3, "H", "M"),  # March: H -> M
+            (6, "M", "U"),  # June:  M -> U
+            (9, "U", "Z"),  # Sept:  U -> Z
             (12, "Z", "H"),  # Dec:   Z -> H (next year)
         ]
 
@@ -336,6 +364,7 @@ class TopstepAPI:
         def _second_friday(y: int, m: int) -> int:
             """Day of 2nd Friday in month."""
             import calendar
+
             first_day_weekday = calendar.weekday(y, m, 1)
             days_to_friday = (4 - first_day_weekday) % 7
             return 1 + days_to_friday + 7  # 2nd Friday
@@ -353,13 +382,21 @@ class TopstepAPI:
                 break
 
         if expected is None:
-            if now.month < 3 or (now.month == 3 and now.day < _second_friday(now.year, 3)):
+            if now.month < 3 or (
+                now.month == 3 and now.day < _second_friday(now.year, 3)
+            ):
                 expected = f"H{year}"
-            elif now.month < 6 or (now.month == 6 and now.day < _second_friday(now.year, 6)):
+            elif now.month < 6 or (
+                now.month == 6 and now.day < _second_friday(now.year, 6)
+            ):
                 expected = f"M{year}"
-            elif now.month < 9 or (now.month == 9 and now.day < _second_friday(now.year, 9)):
+            elif now.month < 9 or (
+                now.month == 9 and now.day < _second_friday(now.year, 9)
+            ):
                 expected = f"U{year}"
-            elif now.month < 12 or (now.month == 12 and now.day < _second_friday(now.year, 12)):
+            elif now.month < 12 or (
+                now.month == 12 and now.day < _second_friday(now.year, 12)
+            ):
                 expected = f"Z{year}"
             else:
                 expected = f"H{year + 1}"
@@ -367,7 +404,10 @@ class TopstepAPI:
         current_code = self.contract_id.split(".")[-1]
 
         if current_code != expected:
-            return (False, f"Contract WRONG! Configured: {current_code}, expected: {expected}")
+            return (
+                False,
+                f"Contract WRONG! Configured: {current_code}, expected: {expected}",
+            )
 
         try:
             bars = self.get_bars(minutes=10)
@@ -381,9 +421,9 @@ class TopstepAPI:
 
     def place_order(
         self,
-        side: str,        # "long" or "short"
-        sl_pts: float,    # Stop-Loss in points
-        tp_pts: float,    # Take-Profit in points
+        side: str,  # "long" or "short"
+        sl_pts: float,  # Stop-Loss in points
+        tp_pts: float,  # Take-Profit in points
         size: int = 1,
     ) -> dict:
         """Place market order WITH bracket orders (SL + TP).
@@ -407,26 +447,30 @@ class TopstepAPI:
             tp_ticks_signed = -tp_ticks
 
         payload = {
-            "accountId":  self.account_id,
+            "accountId": self.account_id,
             "contractId": self.contract_id,
-            "type":       ORDER_MARKET,
-            "side":       order_side,
-            "size":       size,
+            "type": ORDER_MARKET,
+            "side": order_side,
+            "size": size,
             "stopLossBracket": {
                 "ticks": sl_ticks_signed,
-                "type":  ORDER_STOP,
+                "type": ORDER_STOP,
             },
             "takeProfitBracket": {
                 "ticks": tp_ticks_signed,
-                "type":  ORDER_LIMIT,
+                "type": ORDER_LIMIT,
             },
         }
 
         if not self.live:
-            print(f"  [SIM] ORDER {side.upper()} | SL {sl_pts}pt ({sl_ticks}T) | TP {tp_pts}pt ({tp_ticks}T)")
+            print(
+                f"  [SIM] ORDER {side.upper()} | SL {sl_pts}pt ({sl_ticks}T) | TP {tp_pts}pt ({tp_ticks}T)"
+            )
             return {"orderId": -1, "success": True, "sim": True}
 
-        print(f"  [LIVE] SENDING: {side.upper()} | SL {sl_pts}pt ({sl_ticks}T) | TP {tp_pts}pt ({tp_ticks}T)")
+        print(
+            f"  [LIVE] SENDING: {side.upper()} | SL {sl_pts}pt ({sl_ticks}T) | TP {tp_pts}pt ({tp_ticks}T)"
+        )
         r = self._request_with_retry(
             f"{BASE_URL}/api/Order/place",
             json=payload,
@@ -435,14 +479,16 @@ class TopstepAPI:
         data = r.json()
         if not data.get("success"):
             raise RuntimeError(f"Order failed: {data.get('errorMessage')}")
-        print(f"  [LIVE] ORDER {side.upper()} placed | OrderID {data.get('orderId')} "
-              f"| SL {sl_pts}pt ({sl_ticks}T) | TP {tp_pts}pt ({tp_ticks}T) | BRACKET active")
+        print(
+            f"  [LIVE] ORDER {side.upper()} placed | OrderID {data.get('orderId')} "
+            f"| SL {sl_pts}pt ({sl_ticks}T) | TP {tp_pts}pt ({tp_ticks}T) | BRACKET active"
+        )
         return data
 
     def close_position(self) -> dict:
         """Close open position immediately (market order)."""
         if not self.live:
-            print(f"  [SIM] CLOSE POSITION")
+            print("  [SIM] CLOSE POSITION")
             return {"success": True, "sim": True}
 
         r = self._request_with_retry(
@@ -453,7 +499,7 @@ class TopstepAPI:
         data = r.json()
         if not data.get("success"):
             raise RuntimeError(f"Close failed: {data.get('errorMessage')}")
-        print(f"  [LIVE] POSITION CLOSED")
+        print("  [LIVE] POSITION CLOSED")
         return data
 
     def cancel_all_orders(self) -> None:
@@ -467,8 +513,12 @@ class TopstepAPI:
                     timeout=10,
                     endpoint="cancel_order",
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                import logging
+
+                logging.getLogger(__name__).warning(
+                    "Failed to cancel order %s: %s", o.get("id"), e
+                )
 
 
 # ── Quick Test ──────────────────────────────────────────────────────────────
@@ -480,14 +530,16 @@ if __name__ == "__main__":
 
     print("Accounts:")
     for a in api.get_accounts():
-        print(f"  {a['name']} | ID {a['id']} | Balance ${a.get('balance', 0):,.2f} | "
-              f"canTrade={a.get('canTrade')}")
+        print(
+            f"  {a['name']} | ID {a['id']} | Balance ${a.get('balance', 0):,.2f} | "
+            f"canTrade={a.get('canTrade')}"
+        )
 
     print(f"\nContract: {CONTRACT_ID}")
     print(f"Tick: {TICK_SIZE}pt = ${TICK_VALUE}")
 
     print("\n--- SIM Order Tests ---")
-    api.place_order("long",  sl_pts=5.0, tp_pts=15.0)
+    api.place_order("long", sl_pts=5.0, tp_pts=15.0)
     api.place_order("short", sl_pts=5.0, tp_pts=15.0)
     api.close_position()
 
