@@ -1,10 +1,10 @@
 <p align="center">
   <h1 align="center">TopStepX API Health Monitor</h1>
   <p align="center">
-    <strong>Know if your API is healthy before you place a trade.</strong>
+    <strong>Know if your API is healthy before you place a trade. 9 automated checks → single Trust Score 0-100.</strong>
   </p>
   <p align="center">
-    <a href="#quick-start">Quick Start</a> · <a href="#the-9-checks">The 9 Checks</a> · <a href="#trust-score">Trust Score</a> · <a href="#alerting">Alerting</a>
+    <a href="#quick-start">Quick Start</a> · <a href="#the-9-checks">The 9 Checks</a> · <a href="#trust-score">Trust Score</a> · <a href="#alerting">Alerting</a> · <a href="#latency-trending">Latency Trending</a>
   </p>
 </p>
 
@@ -13,6 +13,7 @@
   <img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License">
   <img src="https://img.shields.io/badge/checks-9_automated-orange" alt="9 Checks">
   <img src="https://img.shields.io/badge/trust_score-0--100-red" alt="Trust Score">
+  <img src="https://img.shields.io/badge/24x7-systemd_ready-success" alt="systemd">
   <img src="https://img.shields.io/github/stars/nessos666/topstepx-api-health-monitor?style=social" alt="Stars">
 </p>
 
@@ -30,31 +31,73 @@ Built by an algo trader who got burned by silent API failures. Now open-sourced 
 
 ## The 9 Checks
 
-| # | Check | What it catches |
-|---|-------|----------------|
-| 1 | **Reachability** | API down? Server error? Timeout? |
-| 2 | **Latency** | P95 response time > 2s? Something's wrong. |
-| 3 | **Data Freshness** | Last bar older than 5 minutes? You're trading blind. |
-| 4 | **Contract** | Quarterly rollover happened and you missed it? |
-| 5 | **Token** | JWT expired silently? Auto-detects and warns. |
-| 6 | **canTrade** | Account flagged? Daily loss limit hit? |
-| 7 | **Bar Quality** | NaN values, zero volume, impossible OHLC? |
-| 8 | **Balance** | Drawdown approaching 80%? Time to stop. |
-| 9 | **Loop Continuity** | Your live scanner crashed and nobody noticed? |
+Each check maps to a specific failure mode that can silently break your algo:
+
+| # | Check | What it catches | Impact if failed |
+|---|-------|----------------|-----------------|
+| 1 | **Reachability** | API down? Server error? Timeout? | **Trading impossible** |
+| 2 | **Latency** | P95 response time > 2s? Something's wrong. | Orders delayed or dropped |
+| 3 | **Data Freshness** | Last bar older than 5 minutes? You're trading blind. | Entries on stale data |
+| 4 | **Contract** | Quarterly rollover happened and you missed it? | Trading dead contract |
+| 5 | **Token** | JWT expired silently? Auto-detects and warns. | All API calls fail |
+| 6 | **canTrade** | Account flagged? Daily loss limit hit? | Orders rejected |
+| 7 | **Bar Quality** | NaN values, zero volume, impossible OHLC? | Bad entries from bad data |
+| 8 | **Balance** | Drawdown approaching 80%? Time to stop. | Account blowout |
+| 9 | **Loop Continuity** | Your live scanner crashed and nobody noticed? | Silent outage |
 
 Each check returns `pass/fail` with a detail message. All 9 feed into the Trust Score.
 
 ---
 
-## Trust Score
+## Trust Score: How It Works
+
+### The Formula
+
+The Trust Score is a **weighted composite** of all 9 checks:
 
 ```
- 80-100  HEALTHY    All systems go. Trade with confidence.
- 50-79   DEGRADED   Some checks failing. Investigate before trading.
-  0-49   CRITICAL   Do NOT trade. Fix issues first.
+trust_score = Σ(weight_i × score_i) / Σ(weight_i) × 100
 ```
 
-The score is weighted — critical checks (reachability, canTrade) have more impact than informational ones.
+Where `score_i` is 1.0 for pass, 0.0 for fail (some checks have partial scores).
+
+### Weights
+
+| Weight | Checks | Why |
+|--------|--------|-----|
+| **3x** | Reachability, canTrade | If these fail, you literally cannot trade |
+| **2x** | Token, Contract, Loop Continuity | System-level failures that take time to fix |
+| **1x** | Latency, Data Freshness, Bar Quality, Balance | Degradation, not outage |
+
+### Thresholds
+
+```
+Trust Score    Status        Action
+─────────────────────────────────────────────────
+80-100         HEALTHY      All systems go. Trade with confidence.
+50-79          DEGRADED     Some checks failing. Investigate before trading.
+ 0-49          CRITICAL     Do NOT trade. Fix issues first.
+```
+
+### Real Example
+
+```
+Reachability: ✅ HTTP 200 (weight 3)
+Token:        ✅ Expires in 47min (weight 2)
+canTrade:     ✅ canTrade=True (weight 3)
+Balance:      ⚠️ Drawdown 47% (weight 1, score 0.6)
+Latency:      ✅ P95=312ms (weight 1)
+
+Trust Score = (3×1.0 + 2×1.0 + 3×1.0 + 1×0.6 + 1×1.0) / (3+2+3+1+1) × 100
+            = 9.6 / 10.0 × 100
+            = 96.0  → HEALTHY
+```
+
+### What happens when trust drops
+
+1. Trust Score falls below 80 → **WARNING** alert
+2. Trust Score falls below 50 → **CRITICAL** alert → stop trading
+3. Trust Score recovers above 80 → **RECOVERY** notification
 
 ---
 
@@ -71,8 +114,6 @@ cp .env.example .env
 
 python api_health_scanner.py
 ```
-
-That's it. It runs, checks everything, writes a JSON report.
 
 ---
 
@@ -100,23 +141,44 @@ Results go to `/tmp/nq_api_health.json` (configurable):
 }
 ```
 
-Plain JSON. Read it with anything — n8n, cron, Grafana, your own scripts.
+**Plain JSON.** Read it with anything — n8n, cron, Grafana, Prometheus, your own scripts.
 
 ---
 
 ## Alerting
 
-The scanner does **one thing well**: check and report. It does NOT send alerts itself.
+The scanner does **one thing well**: check and report. It writes JSON to disk. You plug in the alerting.
 
-Plug it into whatever you already use:
+### Option 1: n8n webhook (recommended)
 
-| Tool | How |
-|------|-----|
-| **n8n** | HTTP Request node reads the JSON → Telegram/email on low trust |
-| **cron** | `*/5 * * * * python check_trust.py` |
-| **systemd timer** | Runs a script that checks trust_score |
-| **Grafana** | JSON datasource → dashboard + alerts |
-| **Custom** | It's JSON. Parse it however you want. |
+```
+[n8n Webhook Node] ← reads JSON ← [Scanner writes /tmp/nq_api_health.json]
+         ↓
+[IF trust_score < 80] → [Telegram Bot] → "⚠️ API DEGRADED: Score 73"
+[IF trust_score < 50] → [Telegram Bot] → "🚨 CRITICAL: Score 42 — STOP TRADING"
+[IF trust_score > 80 after alert] → [Telegram Bot] → "✅ RECOVERED: Score 91"
+```
+
+### Option 2: Plain cron
+
+```bash
+*/5 * * * * python /path/to/api_health_scanner.py && \
+  python -c "
+import json
+d = json.load(open('/tmp/nq_api_health.json'))
+if d['trust_score'] < 50:
+    print('CRITICAL - stopping trades')
+    # your stop-trading logic here
+  "
+```
+
+### Option 3: Grafana
+
+```ini
+# datasource: JSON API
+# dashboard: gauge showing trust_score
+# alert: when value < 80 for 2 consecutive checks
+```
 
 ---
 
@@ -154,8 +216,6 @@ WantedBy=default.target
 ```bash
 systemctl --user enable --now nq-apihealth
 ```
-
-Survives reboots. Restarts on crashes. Set and forget.
 
 ---
 
@@ -210,6 +270,38 @@ Use it as a library in your own projects.
 
 ---
 
+## Project Structure
+
+```
+├── api_health_scanner.py     # Main scanner — 9 checks, trust score, JSON output
+├── topstep_api.py            # Production-grade TopStepX API client
+├── requirements.txt
+├── .env.example              # Environment variables template
+└── README.md
+```
+
+---
+
+## Testing
+
+```bash
+# Syntax check
+python3 -m py_compile api_health_scanner.py
+python3 -m py_compile topstep_api.py
+```
+
+---
+
+## Related
+
+Part of the trading infrastructure ecosystem:
+
+- [rithmic-api-health-monitor](https://github.com/nessos666/rithmic-api-health-monitor) — Same approach for Rithmic API (file-based, no own connection)
+- [api-health-trust-system](https://github.com/nessos666/api-health-trust-system) — Generic version of the Trust Score system for any REST API
+- [tv-watch-agent](https://github.com/nessos666/tv-watch-agent) — 24/7 TradingView chart surveillance via CDP
+
+---
+
 ## Philosophy
 
 This tool exists because **trading infrastructure should be open**. The big firms have monitoring dashboards. Retail algo traders deserve the same.
@@ -228,3 +320,8 @@ Built as a human-AI team. Fair credit where it's due.
 ## License
 
 MIT — Use it, modify it, share it. No strings attached.
+
+<p align="center">
+  <small>Built by an algo trader who got burned by silent API failures.<br>
+  <strong>github.com/nessos666</strong></small>
+</p>
