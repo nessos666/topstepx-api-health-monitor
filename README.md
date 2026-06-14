@@ -19,6 +19,9 @@
 
 ---
 
+> **Built on [api-health-trust-system](https://github.com/nessos666/api-health-trust-system)** — the weighted Trust Score monitoring framework.
+> See `examples/topstepx_scanner.py` in that repo for this exact configuration.
+
 ## Why?
 
 If you're running algo strategies on TopStepX / ProjectX, you're trusting the API with real money. But APIs go down. Tokens expire silently. Data goes stale. Contracts roll over.
